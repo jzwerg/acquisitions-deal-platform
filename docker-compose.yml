@@ -19,7 +19,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    volumes: [db-data:/var/lib/postgresql/data]
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # Schema + pgvector extension, applied on first boot (empty data volume).
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports: ["8002:5432"]
 
   # Backing store for Temporal itself (separate from app data).

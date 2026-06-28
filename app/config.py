@@ -20,5 +20,15 @@ TASK_QUEUE: str = os.getenv("TASK_QUEUE", "deals-task-queue")
 # Mock the LLM so first boot needs no API key. Real matching is a later milestone.
 LLM_MOCK: bool = _as_bool(os.getenv("LLM_MOCK", "true"))
 
-# App database (pgvector). Unused at Milestone 0 but wired through for later.
+# App database (pgvector).
 DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+
+# Embedding dimension reserved on the `embedding` column. Stays NULL until
+# Milestone 3 populates it; the real model choice (ADR 0002) may revise this.
+# Keep this in sync with `db/init.sql`.
+EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "1024"))
+
+# Synthetic data generation (`make seed`). Deterministic by SEED.
+SEED: int = int(os.getenv("SEED", "42"))
+SEED_MANDATES: int = int(os.getenv("SEED_MANDATES", "20"))
+SEED_LISTINGS: int = int(os.getenv("SEED_LISTINGS", "100"))
