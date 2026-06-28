@@ -59,7 +59,7 @@ See [`docs/product/brief.md`](./docs/product/brief.md) for the product thinking 
 ## Run it
 
 ```bash
-docker-compose up        # Temporal server + workers + Postgres (pgvector) + API
+docker compose up        # Temporal server + workers + Postgres (pgvector) + API  (or: make up)
 ```
 
 There's no hosted instance to babysit — the demo *is* the local run, and the proof is in CI. Every push runs the headline demo in GitHub Actions: a worker is killed mid-deal and the workflow **resumes exactly where it left off** (plus a decline/timeout that archives the deal cleanly). A green check means durable execution actually works here — reproducible, not asserted.

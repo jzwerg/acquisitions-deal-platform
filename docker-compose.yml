@@ -1,0 +1,84 @@
+# First-boot skeleton — Temporal + a long-running worker + Postgres (pgvector) + API.
+# Goal of this file: `docker compose up` brings everything to a healthy state, the
+# worker connects to Temporal, and the API responds. The kill-a-worker durability
+# demo is the NEXT milestone (see MILESTONE.md / PLAN.md), not this one.
+#
+# First boot must NOT require an API key: set LLM_MOCK=true so agent activities are
+# stubbed. Host ports for this project live in the 80xx range (see MILESTONE.md).
+
+services:
+  # Application data + embeddings.
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-app}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-app}"
+      POSTGRES_DB: "${POSTGRES_DB:-deals}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes: [db-data:/var/lib/postgresql/data]
+    ports: ["8002:5432"]
+
+  # Backing store for Temporal itself (separate from app data).
+  temporal-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes: [temporal-db-data:/var/lib/postgresql/data]
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    depends_on:
+      temporal-db: { condition: service_healthy }
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-db
+    ports: ["7233:7233"]
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    depends_on: [temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports: ["8001:8080"]
+
+  api:
+    build: .                       # TODO(session): add Dockerfile (Python/FastAPI)
+    depends_on:
+      db: { condition: service_healthy }
+      temporal: { condition: service_started }
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-deals}"
+      TEMPORAL_ADDRESS: "temporal:7233"
+      LLM_MOCK: "${LLM_MOCK:-true}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    ports: ["8000:8000"]
+
+  # The durable piece: a long-running worker (NOT a serverless function).
+  worker:
+    build: .                       # TODO(session): same image, worker entrypoint
+    command: ["python", "-m", "worker"]   # TODO(session): real entrypoint
+    depends_on:
+      temporal: { condition: service_started }
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-deals}"
+      TEMPORAL_ADDRESS: "temporal:7233"
+      LLM_MOCK: "${LLM_MOCK:-true}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+
+volumes:
+  db-data:
+  temporal-db-data:
