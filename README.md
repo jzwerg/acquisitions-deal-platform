@@ -1,7 +1,10 @@
 # Acquisitions Deal Platform
 
-> An AI-matched marketplace for buying and selling businesses, where **each deal runs as a durable, long-lived workflow**. Buyers post acquisition mandates, sellers list businesses, an AI layer matches and screens them, and **Temporal orchestrates the full deal lifecycle** — sourcing → match → outreach → NDA → due diligence → negotiation → close — surviving worker crashes, retries, and weeks-long human waits.
+> Lower-middle-market M&A deals die in the gaps — the weeks between an intro and an NDA, the dropped follow-up during due diligence, the deal that silently stalls because no one owned the next step. **Acquisitions Deal Platform makes sure no deal stalls silently:** an AI layer finds and explains buyer↔seller matches, and every deal runs as a durable workflow that survives weeks-long waits, human approvals, and system crashes without losing its place.
+>
+> *Under the hood: Temporal for durable deal-lifecycle execution (sourcing → match → outreach → NDA → due diligence → negotiation → close), embeddings + LLM re-ranking for explainable matching.*
 
+**For:** deal leads at boutique M&A advisories and search funds — it makes the advisor faster, it doesn't replace them.
 **Skill signal:** AI agents / LLM orchestration · durable execution (Temporal) · semantic matching / ML · product engineering
 **Region anchor:** SMB / lower-middle-market M&A across UK, EU, US, and Singapore
 
@@ -49,7 +52,7 @@ flowchart TD
 - **Concrete matching, not "AI magic"** — embeddings over structured mandates (sector, geography, revenue / EBITDA band) plus **LLM re-ranking against explicit criteria**, with a written rationale per match. A small **matching-quality eval** (precision@k over a labeled synthetic set) makes the quality measurable.
 - **Human-in-the-loop as a first-class workflow concept** — approval gates and multi-week waits handled by Temporal signals and durable timers, not cron hacks. Agents *propose*; humans *approve* before anything external is sent.
 
-See [`PLAN.md`](./PLAN.md) for the build plan and [`docs/adr/`](./docs/adr/) for engineering decisions.
+See [`docs/product/brief.md`](./docs/product/brief.md) for the product thinking (users, success metrics, non-goals, risks), [`PLAN.md`](./PLAN.md) for the build plan, and [`docs/adr/`](./docs/adr/) for engineering decisions.
 
 ## Status
 
