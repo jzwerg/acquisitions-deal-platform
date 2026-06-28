@@ -8,6 +8,8 @@
 **Skill signal:** AI agents / LLM orchestration · durable execution (Temporal) · semantic matching / ML · product engineering
 **Region anchor:** SMB / lower-middle-market M&A across UK, EU, US, and Singapore
 
+[![CI](https://github.com/jzwerg/acquisitions-deal-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/jzwerg/acquisitions-deal-platform/actions/workflows/ci.yml)
+
 ---
 
 ## Why this exists
@@ -53,6 +55,16 @@ flowchart TD
 - **Human-in-the-loop as a first-class workflow concept** — approval gates and multi-week waits handled by Temporal signals and durable timers, not cron hacks. Agents *propose*; humans *approve* before anything external is sent.
 
 See [`docs/product/brief.md`](./docs/product/brief.md) for the product thinking (users, success metrics, non-goals, risks), [`PLAN.md`](./PLAN.md) for the build plan, and [`docs/adr/`](./docs/adr/) for engineering decisions.
+
+## Run it
+
+```bash
+docker-compose up        # Temporal server + workers + Postgres (pgvector) + API
+```
+
+There's no hosted instance to babysit — the demo *is* the local run, and the proof is in CI. Every push runs the headline demo in GitHub Actions: a worker is killed mid-deal and the workflow **resumes exactly where it left off** (plus a decline/timeout that archives the deal cleanly). A green check means durable execution actually works here — reproducible, not asserted.
+
+> 🎬 *A terminal recording of the kill-a-worker demo will live here.*
 
 ## Status
 
