@@ -1,0 +1,7 @@
+# Milestone 0 — first-boot dependencies (Python 3.12, matches CI + compose).
+# Shared by both the `api` and `worker` services (one image, two entrypoints).
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+temporalio==1.9.0
+httpx==0.28.1
+pytest==8.3.4

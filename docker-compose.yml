@@ -55,7 +55,7 @@ services:
     ports: ["8001:8080"]
 
   api:
-    build: .                       # TODO(session): add Dockerfile (Python/FastAPI)
+    build: .                       # Python/FastAPI image (see Dockerfile)
     depends_on:
       db: { condition: service_healthy }
       temporal: { condition: service_started }
@@ -64,12 +64,18 @@ services:
       TEMPORAL_ADDRESS: "temporal:7233"
       LLM_MOCK: "${LLM_MOCK:-true}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    healthcheck:
+      # python (no curl in the slim image); urlopen raises -> non-zero on failure.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     ports: ["8000:8000"]
 
   # The durable piece: a long-running worker (NOT a serverless function).
   worker:
-    build: .                       # TODO(session): same image, worker entrypoint
-    command: ["python", "-m", "worker"]   # TODO(session): real entrypoint
+    build: .                       # same image as api, different entrypoint
+    command: ["python", "-m", "worker"]   # connects to Temporal + polls the task queue
     depends_on:
       temporal: { condition: service_started }
       db: { condition: service_healthy }
