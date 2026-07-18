@@ -11,7 +11,7 @@ import asyncio
 import random
 
 from app import config
-from app.db import write_all
+from app.db import dispose_engine, write_all
 from app.models import (
     BuyerMandate,
     EbitdaBand,
@@ -139,6 +139,7 @@ async def _amain() -> None:
         config.SEED, config.SEED_MANDATES, config.SEED_LISTINGS
     )
     await write_all(mandates, listings)
+    await dispose_engine()
     print(
         f"Seeded {len(mandates)} mandates and {len(listings)} listings "
         f"(seed={config.SEED})."

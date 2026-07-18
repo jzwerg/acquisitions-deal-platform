@@ -37,3 +37,17 @@ CREATE TABLE IF NOT EXISTS listings (
     embedding     vector(1024),   -- reserved for Milestone 3; NULL until then
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Deal state (Milestone 2). Temporal owns the workflow/process; this table is
+-- the business record. Written idempotently by the deal activities (upsert by
+-- deal_id), so at-least-once execution never corrupts state.
+CREATE TABLE IF NOT EXISTS deals (
+    deal_id        TEXT PRIMARY KEY,
+    mandate_id     TEXT,
+    stage          TEXT NOT NULL,
+    outcome        TEXT,           -- closed | archived (set at terminal state)
+    reason         TEXT,           -- completed | declined | nda_timeout
+    top_match_id   TEXT,
+    outreach_draft TEXT,
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);

@@ -15,7 +15,14 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from app.config import TASK_QUEUE, TEMPORAL_ADDRESS
-from worker.activities import stub_agent_activity
+from worker.activities import (
+    archive_deal,
+    draft_outreach,
+    persist_deal_state,
+    screen_and_match,
+    stub_agent_activity,
+)
+from worker.workflows import DealWorkflow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("worker")
@@ -58,7 +65,14 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
-        activities=[stub_agent_activity],
+        workflows=[DealWorkflow],
+        activities=[
+            screen_and_match,
+            draft_outreach,
+            persist_deal_state,
+            archive_deal,
+            stub_agent_activity,
+        ],
     )
     log.info("Worker started; polling task queue %r", TASK_QUEUE)
     await worker.run()

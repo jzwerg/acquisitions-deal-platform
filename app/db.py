@@ -1,19 +1,18 @@
-"""Database access for synthetic data loading.
+"""Database access for synthetic data + deal state.
 
-The schema is owned by ``db/init.sql`` (it declares the pgvector ``embedding``
-column, which we deliberately don't touch here). This module defines just the
-columns we insert and provides an idempotent upsert keyed on ``id`` — rerunning
-``make seed`` with the same seed leaves the same rows, and the ``embedding``
-column stays NULL until Milestone 3.
+The schema is owned by ``db/init.sql``. Profiles (mandates/listings) and deal
+state both live in Postgres — Temporal owns the *process*, Postgres owns the
+*data* (see PLAN.md). Deal writes are idempotent (upsert by ``deal_id``) so
+Temporal's at-least-once activity execution never corrupts state.
 """
 from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import Column, Float, MetaData, Table, Text
+from sqlalchemy import Column, Float, MetaData, Table, Text, select
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app import config
 from app.models import BuyerMandate, SellerListing
@@ -52,12 +51,44 @@ listings_table = Table(
     Column("description", Text, nullable=False),
 )
 
+deals_table = Table(
+    "deals",
+    metadata,
+    Column("deal_id", Text, primary_key=True),
+    Column("mandate_id", Text),
+    Column("stage", Text, nullable=False),
+    Column("outcome", Text),
+    Column("reason", Text),
+    Column("top_match_id", Text),
+    Column("outreach_draft", Text),
+)
+
+_engine: AsyncEngine | None = None
+
 
 def async_url(url: str) -> str:
     """Adapt a standard postgres URL to the asyncpg driver SQLAlchemy needs."""
     if url.startswith("postgresql+"):
         return url
     return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+
+def get_engine() -> AsyncEngine:
+    """Lazily create and cache one async engine per process/event loop."""
+    global _engine
+    if _engine is None:
+        _engine = create_async_engine(async_url(config.DATABASE_URL))
+    return _engine
+
+
+async def dispose_engine() -> None:
+    global _engine
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None
+
+
+# --- synthetic data (make seed) --------------------------------------------
 
 
 def _mandate_row(m: BuyerMandate) -> dict:
@@ -90,28 +121,51 @@ def _listing_row(s: SellerListing) -> dict:
     }
 
 
-def _upsert(table: Table, rows: list[dict]):
+def _upsert(table: Table, rows: list[dict], key: str):
     stmt = pg_insert(table).values(rows)
     update_cols = {
-        c.name: stmt.excluded[c.name] for c in table.columns if c.name != "id"
+        c.name: stmt.excluded[c.name] for c in table.columns if c.name != key
     }
-    return stmt.on_conflict_do_update(index_elements=["id"], set_=update_cols)
+    return stmt.on_conflict_do_update(index_elements=[key], set_=update_cols)
 
 
 async def write_all(
     mandates: Sequence[BuyerMandate], listings: Sequence[SellerListing]
 ) -> None:
     """Upsert mandates and listings into Postgres (idempotent by id)."""
-    engine = create_async_engine(async_url(config.DATABASE_URL))
-    try:
-        async with engine.begin() as conn:
-            if mandates:
-                await conn.execute(
-                    _upsert(mandates_table, [_mandate_row(m) for m in mandates])
-                )
-            if listings:
-                await conn.execute(
-                    _upsert(listings_table, [_listing_row(s) for s in listings])
-                )
-    finally:
-        await engine.dispose()
+    engine = get_engine()
+    async with engine.begin() as conn:
+        if mandates:
+            await conn.execute(
+                _upsert(mandates_table, [_mandate_row(m) for m in mandates], "id")
+            )
+        if listings:
+            await conn.execute(
+                _upsert(listings_table, [_listing_row(s) for s in listings], "id")
+            )
+
+
+# --- deal state (Temporal activities) --------------------------------------
+
+
+async def upsert_deal(deal_id: str, **fields) -> None:
+    """Upsert a deal row, updating only the provided (non-None) columns.
+
+    Idempotent by ``deal_id`` — safe under Temporal's at-least-once activity
+    execution and never clobbers an existing column with NULL.
+    """
+    values = {"deal_id": deal_id}
+    values.update({k: v for k, v in fields.items() if v is not None})
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.execute(_upsert(deals_table, [values], "deal_id"))
+
+
+async def get_deal(deal_id: str) -> dict | None:
+    engine = get_engine()
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(deals_table).where(deals_table.c.deal_id == deal_id)
+        )
+        row = res.mappings().first()
+    return dict(row) if row else None

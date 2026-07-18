@@ -20,8 +20,8 @@ ps: ## Show running services
 seed: ## Load deterministic synthetic mandates + listings (needs the stack up)
 	docker compose exec api python -m app.seed
 
-demo: ## Headline demo — kill a worker mid-deal, assert the workflow resumes (TODO: wire up — see MILESTONE.md)
-	@echo "TODO: start a deal, kill the worker mid-flight, assert exactly-once resume; force a decline/timeout to assert clean archival."
+demo: ## Headline demo — kill a worker mid-deal (resume) + decline/timeout (archive)
+	./scripts/demo.sh
 
 test: ## Run the Python test suite (workflow-replay test + matching eval)
 	pytest -q
