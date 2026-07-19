@@ -1,67 +1,55 @@
-# Milestone 3 — Matching layer (embeddings + LLM re-rank)
+# Milestone 4 — Matching eval (precision@k / recall@k)
 
-The single goal of this milestone: **turn mandates and listings into ranked,
-explained matches.** Embed profiles into pgvector, retrieve candidates by vector
-similarity + structured filters, then **LLM re-rank** the shortlist against the
-mandate's criteria — each match carrying a **written rationale**. This plugs into
-the existing `screen_and_match` activity, so the deal workflow is unchanged.
-Still mock-first: deterministic mock embeddings + mock re-rank mean `make up` and
-CI run with **no API key**; real embeddings/LLM turn on behind `LLM_MOCK=false`.
+The single goal of this milestone: **make matching quality measurable, not a
+vibe.** A labeled synthetic dataset + a precision@k / recall@k harness that
+reports a real score for the Milestone 3 retrieval + re-rank pipeline. Runs
+deterministically on the **mock** embedding backend so CI reports a stable
+number with no API key.
 
 > Done so far: M0 (first boot), M1 (domain & data), M2 (durable workflow +
-> kill-a-worker demo) — see [`docs/milestones/`](./docs/milestones/). The next
-> milestone is the matching eval — see
-> [`docs/milestones/milestone-4-matching-eval.md`](./docs/milestones/milestone-4-matching-eval.md).
+> kill-a-worker demo), M3 (matching layer) — see
+> [`docs/milestones/`](./docs/milestones/). The next milestone is real,
+> human-gated agent activities — see
+> [`docs/milestones/milestone-5-agentic-activities.md`](./docs/milestones/milestone-5-agentic-activities.md).
 
 ## Definition of done
-- **Embedding provider abstraction** with two backends selected by `LLM_MOCK`:
-  a **deterministic mock** (hash-seeded vector of `EMBEDDING_DIM`, no network,
-  the default) and a **real** backend (a configured embeddings API, only when
-  `LLM_MOCK=false`). Anthropic has no embeddings API, so the real backend is a
-  separate provider behind this abstraction — out of the first-boot path.
-- **Embedding population**: a step (`make embed`) that computes embeddings for
-  seeded mandates + listings and writes them to the reserved `embedding` column.
-- **Candidate retrieval**: structured pre-filter (sector / region / EBITDA band /
-  deal-size) **plus** pgvector similarity (cosine `<=>`) over listings for a
-  mandate → a top-N shortlist.
-- **LLM re-rank**: score the shortlist against the mandate criteria and attach a
-  **per-match rationale**; mocked deterministically under `LLM_MOCK`.
-- **Wired into the workflow**: `screen_and_match` returns these real ranked
-  matches (with rationale) instead of canned ones — same activity boundary, the
-  workflow untouched.
-- `make up` still boots healthy with **no API key**; `make test` stays green
-  (retrieval + mock-embedding + re-rank tests; keep DB-touching tests gated so CI
-  logic stays DB-free).
+- **Labeled synthetic set**: extend the seeded generator to emit ground-truth
+  relevant listing(s) per mandate — plant known-good matches (aligned sector /
+  region / band / size) alongside controlled distractors, **deterministic by
+  seed** and reproducible from the same RNG as the profiles.
+- **Eval harness**: compute **precision@k** and **recall@k** over the M3
+  retrieval + re-rank pipeline against those labels, for configurable `k`.
+- **`make eval`** prints the scores (a per-`k` table + an aggregate line) and
+  states which backend produced them (mock vs real).
+- A test asserts the harness runs and that scores on the **mock** backend are
+  deterministic and within sane bounds — so CI carries a real, stable number.
+- Wire the eval into CI as the "matching quality is measured" proof.
 
 ## Smoke check (how you know it worked)
-- `make up && make seed && make embed`, then
-  `docker compose exec db psql -U app -d deals -c "select count(*) from listings where embedding is not null;"`
-  returns a **non-zero** count.
-- Start a deal (`POST /deals`) → the returned match(es) carry a **rationale** and
-  the `deals` record's `top_match_id` comes from real retrieval, not a constant.
-- `make test` passes, including a deterministic re-rank/retrieval test.
+- `make up && make seed && make embed && make eval` prints precision@k / recall@k.
+- Re-running `make eval` with the same `SEED` yields the **same** scores.
+- `make test` passes, including the eval determinism test.
 
 ## Explicitly out of scope (later milestones)
-- precision@k / recall@k eval + the labeled set — Milestone 4.
-- Real agent reasoning for screening/outreach/DD — Milestone 5.
-- UI beyond the existing endpoints — Milestone 6.
-- The failure-demo polish / CI-runs-the-demo — Milestone 7–8.
+- Real-model tuning / choosing a production embedding+LLM backend — that's the
+  opt-in real path established in M3/M5, not this eval.
+- Real agent reasoning (M5), UI (M6), failure-demo polish / CI-runs-the-demo (M7–8).
 
 ## Stack gotchas
-- Keep `EMBEDDING_DIM` in sync with the `vector(N)` column in `db/init.sql`. If
-  the real model's dimension differs, that's a **schema change** — document it.
-- **Mock embeddings must be deterministic** (hash/seed-based) so retrieval, the
-  re-rank, and the M4 eval are all reproducible.
-- Determinism boundary (ADR 0004): embeddings + LLM re-rank calls run **inside
-  the `screen_and_match` activity**, never in workflow code — the boundary is
-  already in place, keep it.
-- pgvector similarity uses the `<=>` operator; an ivfflat/hnsw index is optional
-  at demo scale but note it for larger corpora.
-- **No new services**; embeddings are computed in-process / in the activity.
+- The labeled set **must be deterministic** (seeded) or the eval isn't
+  reproducible — derive relevance labels from the same seed as the profiles so
+  planted matches are stable.
+- Report the CI number on the **mock** backend (no key); a real-backend run is
+  local and opt-in. Always state which backend a reported score came from.
+- Keep the eval logic **DB-optional** where practical (evaluate over an in-memory
+  candidate set built from the generator) so `make test` stays DB-free; gate any
+  pgvector-backed retrieval test to the live stack.
+- The eval measures the pipeline behind the activity boundary — no LLM/embedding
+  calls leak into workflow code (ADR 0004).
 
 ## Shared conventions (portfolio-wide — keep identical across all four repos)
 - **Branch:** `claude/product-thinking-repos-cmbegm`.
-- **Task interface:** `make up` / `down` / `demo` / `test` / `logs` (plus `seed`, `embed`).
+- **Task interface:** `make up` / `down` / `demo` / `test` / `logs` (plus `seed`, `embed`, `eval`).
 - **First boot needs no secrets** — `.env.example` defaults must boot (LLM mocked).
 - **Compose v2:** `docker compose` (space), not the deprecated `docker-compose`.
 - **Host ports:** this project owns the **80xx** range.
@@ -70,12 +58,10 @@ CI run with **no API key**; real embeddings/LLM turn on behind `LLM_MOCK=false`.
   verified on a machine with a Docker daemon.
 
 ## Paste-ready session kickoff
-> Implement Milestone 3 per `MILESTONE.md`. Add an embedding provider abstraction
-> (deterministic mock default, real behind `LLM_MOCK=false`), a `make embed` step
-> that populates the pgvector `embedding` columns, candidate retrieval (structured
-> filter + cosine similarity), and an LLM re-rank producing a per-match rationale
-> — then have the `screen_and_match` activity return those real matches without
-> changing the workflow. Keep first boot key-free and the re-rank/embeddings
-> mocked deterministically. Don't build the precision@k eval yet. Validate with
-> `docker compose config -q` and `make test`. Commit to
+> Implement Milestone 4 per `MILESTONE.md`. Extend the seeded generator with
+> ground-truth relevance labels, add a precision@k / recall@k harness over the M3
+> matching pipeline wired to `make eval`, and a determinism test that reports a
+> stable score on the mock backend in CI. Keep it key-free, reproducible, and
+> DB-free where practical. Don't build real agent activities or a UI yet.
+> Validate with `docker compose config -q` and `make test`. Commit to
 > `claude/product-thinking-repos-cmbegm` and push.
