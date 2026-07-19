@@ -58,14 +58,32 @@ See [`docs/product/brief.md`](./docs/product/brief.md) for the product thinking 
 
 ## Run it
 
+First boot needs **no API key** — the LLM is mocked (`LLM_MOCK=true`) so the whole
+stack comes up and the demo runs offline.
+
 ```bash
-docker compose up        # Temporal server + workers + Postgres (pgvector) + API  (or: make up)
+cp .env.example .env
+make up          # Temporal (+ UI) + Postgres (pgvector) + API + long-running worker
+make seed        # load deterministic synthetic mandates + listings
+make embed       # populate pgvector embeddings (mock backend)
+make demo        # kill a worker mid-deal -> resumes; decline/NDA-timeout -> archives
+make test        # Python suite incl. the Temporal workflow-replay test
 ```
 
-There's no hosted instance to babysit — the demo *is* the local run, and the proof is in CI. Every push runs the headline demo in GitHub Actions: a worker is killed mid-deal and the workflow **resumes exactly where it left off** (plus a decline/timeout that archives the deal cleanly). A green check means durable execution actually works here — reproducible, not asserted.
+Health check on `localhost:8000/health`, Temporal UI on `localhost:8001`, ranked
+matches at `localhost:8000/mandates/<id>/matches`.
+
+There's no hosted instance to babysit — the demo *is* the local run, and the proof is in CI. The workflow-replay test asserts durable execution is deterministic; a green check means it actually works here — reproducible, not asserted.
 
 > 🎬 *A terminal recording of the kill-a-worker demo will live here.*
 
 ## Status
 
-📋 Planning phase — specification and build plan committed. Implementation to follow.
+🚧 Under construction. Built so far:
+
+- **M0** — first `docker compose up`: Python image, FastAPI `/health`, long-running Temporal worker.
+- **M1** — domain & data: mandate/listing models, pgvector schema, seeded synthetic generator.
+- **M2** — durable deal-lifecycle workflow + the kill-a-worker resume / decline / NDA-timeout demos.
+- **M3** — matching layer: embeddings + structured/vector retrieval + explainable re-rank (mock-first).
+
+Next: **M4** — precision@k / recall@k matching eval. See [`MILESTONE.md`](./MILESTONE.md) for the active contract and [`docs/milestones/`](./docs/milestones/) for the full sequence.
