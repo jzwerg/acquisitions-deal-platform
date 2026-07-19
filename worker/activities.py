@@ -10,6 +10,7 @@ from temporalio import activity
 
 from app.config import LLM_MOCK
 from app.db import upsert_deal
+from app.matching import match_mandate
 from worker.shared import Match
 
 
@@ -23,18 +24,23 @@ async def stub_agent_activity(prompt: str) -> str:
 
 @activity.defn
 async def screen_and_match(mandate_id: str) -> list[Match]:
-    """Return ranked matches for a mandate.
+    """Return ranked, explained matches for a mandate (embeddings + re-rank).
 
-    Canned for Milestone 2 — real embedding retrieval + LLM re-rank land in
-    Milestone 3 behind this same activity boundary. (Reads seeded listings for
-    richer matches will slot in here without touching the workflow.)
+    Runs the real hybrid matching pipeline (retrieval + re-rank) inside this
+    activity — the determinism boundary (ADR 0004). Falls back to a placeholder
+    when the mandate/embeddings aren't present yet (e.g. `make embed` not run),
+    so the durability demo still works without seeded data.
     """
-    activity.logger.info("screening mandate %s (mock matches)", mandate_id)
+    matches = await match_mandate(mandate_id)
+    if matches:
+        activity.logger.info("matched %d listings for %s", len(matches), mandate_id)
+        return matches
+    activity.logger.info(
+        "no matches for %s (unseeded / no embeddings); using fallback", mandate_id
+    )
     return [
-        Match("listing-42-0000", "Apex Cloud", 0.92,
-              "Sector and size fit; strong recurring revenue."),
-        Match("listing-42-0001", "Summit Systems", 0.81,
-              "Sector fit; geography slightly off but stated openness."),
+        Match("listing-42-0000", "Apex Cloud", 0.5,
+              "Fallback match — run `make seed && make embed` for real matching."),
     ]
 
 

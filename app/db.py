@@ -9,7 +9,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import Column, Float, MetaData, Table, Text, select
+from sqlalchemy import (
+    Column,
+    Float,
+    MetaData,
+    Table,
+    Text,
+    bindparam,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -169,3 +178,94 @@ async def get_deal(deal_id: str) -> dict | None:
         )
         row = res.mappings().first()
     return dict(row) if row else None
+
+
+# --- matching (embeddings + retrieval) -------------------------------------
+
+
+async def fetch_mandate(mandate_id: str) -> dict | None:
+    engine = get_engine()
+    async with engine.connect() as conn:
+        res = await conn.execute(
+            select(mandates_table).where(mandates_table.c.id == mandate_id)
+        )
+        row = res.mappings().first()
+    return dict(row) if row else None
+
+
+async def fetch_mandates() -> list[dict]:
+    engine = get_engine()
+    async with engine.connect() as conn:
+        res = await conn.execute(select(mandates_table))
+        return [dict(r) for r in res.mappings().all()]
+
+
+async def fetch_listings() -> list[dict]:
+    engine = get_engine()
+    async with engine.connect() as conn:
+        res = await conn.execute(select(listings_table))
+        return [dict(r) for r in res.mappings().all()]
+
+
+async def set_embedding(table_name: str, row_id: str, vector_str: str) -> None:
+    """Write a pgvector embedding to a row. ``table_name`` is caller-controlled
+    (``mandates``/``listings``), never user input."""
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                f"UPDATE {table_name} SET embedding = CAST(:emb AS vector) "
+                "WHERE id = :id"
+            ),
+            {"emb": vector_str, "id": row_id},
+        )
+
+
+_LISTING_COLS = (
+    "id, business_name, sector, region, revenue, ebitda, ebitda_band, "
+    "asking_min, asking_max, description"
+)
+
+
+async def retrieve_listings(
+    mandate: dict, query_vector_str: str, top_n: int
+) -> list[dict]:
+    """Structured pre-filter + pgvector cosine similarity (ADR 0002).
+
+    Returns the top-N most similar listings; falls back to pure vector search if
+    the structured filter yields nothing.
+    """
+    engine = get_engine()
+    sim = "1 - (embedding <=> CAST(:q AS vector)) AS similarity"
+    order = "embedding <=> CAST(:q AS vector)"
+    params = {
+        "q": query_vector_str,
+        "sectors": mandate["sectors"],
+        "regions": mandate["regions"],
+        "dmin": mandate["deal_size_min"],
+        "dmax": mandate["deal_size_max"],
+        "n": top_n,
+    }
+    strict = (
+        text(
+            f"SELECT {_LISTING_COLS}, {sim} FROM listings "
+            "WHERE embedding IS NOT NULL "
+            "AND sector = ANY(:sectors) AND region = ANY(:regions) "
+            "AND asking_min <= :dmax AND asking_max >= :dmin "
+            f"ORDER BY {order} LIMIT :n"
+        ).bindparams(
+            bindparam("sectors", type_=ARRAY(Text)),
+            bindparam("regions", type_=ARRAY(Text)),
+        )
+    )
+    loose = text(
+        f"SELECT {_LISTING_COLS}, {sim} FROM listings "
+        f"WHERE embedding IS NOT NULL ORDER BY {order} LIMIT :n"
+    )
+    async with engine.connect() as conn:
+        res = await conn.execute(strict, params)
+        rows = [dict(r) for r in res.mappings().all()]
+        if not rows:
+            res = await conn.execute(loose, params)
+            rows = [dict(r) for r in res.mappings().all()]
+    return rows

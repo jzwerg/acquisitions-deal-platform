@@ -6,12 +6,14 @@ process owner and Postgres as the data owner. Richer endpoints + a UI arrive in
 Milestone 6.
 """
 import uuid
+from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.config import LLM_MOCK, TASK_QUEUE, TEMPORAL_ADDRESS
 from app.db import get_deal
+from app.matching import match_mandate
 from app.temporal_client import get_client
 from worker.shared import DealInput
 from worker.workflows import DealWorkflow
@@ -80,3 +82,15 @@ async def read_deal(deal_id: str) -> dict:
     if row is None:
         raise HTTPException(status_code=404, detail=f"deal {deal_id} not found")
     return row
+
+
+@app.get("/mandates/{mandate_id}/matches")
+async def mandate_matches(mandate_id: str, k: int = 5) -> dict:
+    """Ranked, explained matches for a mandate (embeddings + re-rank)."""
+    matches = await match_mandate(mandate_id, top_n=k)
+    if not matches:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no matches for mandate {mandate_id} (run `make seed && make embed`?)",
+        )
+    return {"mandate_id": mandate_id, "matches": [asdict(m) for m in matches]}
